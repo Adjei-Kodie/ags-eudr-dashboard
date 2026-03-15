@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A. G. S. | GCTS EUDR Compliance Engine</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #header { height: 60px; background: #1b2631; color: white; display: flex; align-items: center; padding: 0 20px; z-index: 1000; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        #header h1 { margin: 0; font-size: 1.1rem; letter-spacing: 0.5px; text-transform: uppercase; }
+        #main-container { display: flex; flex: 1; overflow: hidden; }
+        #sidebar { width: 320px; background: #f4f6f7; border-right: 1px solid #d5dbdb; padding: 20px; overflow-y: auto; z-index: 999; }
+        #sidebar h2 { font-size: 0.95rem; color: #1b2631; border-bottom: 2px solid #27ae60; padding-bottom: 8px; margin-top: 20px; }
+        #sidebar h2:first-child { margin-top: 0; }
+        .info-box { background: white; padding: 15px; border-radius: 4px; border: 1px solid #e5e8e8; margin-top: 15px; font-size: 0.85rem; line-height: 1.5; color: #34495e; }
+        
+        #map { flex: 1; position: relative; } 
+        
+        /* --- NEW: Centered Map Title Styling --- */
+        #map-title {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 25px;
+            border: 2px solid #27ae60;
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            text-align: center;
+            z-index: 1000; /* Sits above the map tiles */
+            pointer-events: none; /* Allows you to click through it if needed */
+        }
+        #map-title h2 { margin: 0; font-size: 1.3rem; color: #1b2631; letter-spacing: 1px; }
+        #map-title h3 { margin: 5px 0 0 0; font-size: 1rem; color: #2c3e50; }
+        
+        .legend-item { display: flex; align-items: center; margin-bottom: 8px; }
+        .box { width: 18px; height: 18px; margin-right: 10px; border: 1px solid rgba(0,0,0,0.2); }
+        input[type="text"] { width: 65%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn-main { padding: 8px 12px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-export { width: 100%; padding: 10px; background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    
+        #coords {
+            position: absolute;
+            bottom: 10px;
+            left: 10px; 
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        /* --- Strict Native WYSIWYG Print Layout --- */
+        @media print {
+            @page { size: A4 landscape; margin: 0; }
+            html, body { 
+                margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; 
+                -webkit-print-color-adjust: exact !important; 
+                print-color-adjust: exact !important; 
+            }
+            #header, #sidebar, #coords, .leaflet-control-zoom, .print-btn-container { 
+                display: none !important; 
+            }
+            #main-container { 
+                display: block !important; width: 100% !important; height: 100% !important; 
+            }
+            #map { 
+                position: absolute !important; top: 0 !important; left: 0 !important; 
+                width: 100vw !important; height: 100vh !important; z-index: 9999 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <img src="logo.png" alt="AGS Logo" style="height: 40px; margin-right: 15px;">
+        <h1>A. G. S. | GCTS EUDR COMPLIANCE DASHBOARD</h1>
+    </div>
+
+    <div id="main-container">
+        <div id="sidebar">
+            <h2>Search Farm</h2>
+            <div class="info-box">
+                <input type="text" id="search-id" placeholder="Enter Farm ID">
+                <button class="btn-main" onclick="searchFarm()">Go</button>
+                <div id="search-status" style="margin-top: 5px; color: #e74c3c; font-size: 0.8rem;"></div>
+            </div>
+
+            <h2>Compliance Assessment</h2>
+            <div id="compliance-status-box" class="info-box" style="display:none; border-left: 5px solid #ccc;">
+                <div id="status-indicator" style="font-weight:bold; font-size: 1.1rem; margin-bottom:10px;">Checking...</div>
+                <div id="feature-data"></div>
+                <hr style="border:0; border-top: 1px solid #eee; margin:15px 0;">
+                <button class="btn-export" onclick="generateReport()">Download Compliance Report</button>
+            </div>
+
+            <h2>Legend</h2>
+            <div class="info-box">
+                <div class="legend-item">
+                    <div class="box" style="background: rgba(255, 0, 0, 0.5); border: 2px solid #8B0000;"></div>
+                    <span>Forest Reserves (Protected)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="box" style="background: rgba(39, 174, 96, 0.2); border: 2px solid #27ae60;"></div>
+                    <span>Cocoa Farm Boundaries</span>
+                </div>
+            </div>
+            
+            <div style="margin-top: 40px; padding: 15px; border-top: 2px solid #27ae60; text-align: center; background: white; border-radius: 4px; border: 1px solid #e5e8e8;">
+                <span style="font-weight: bold; color: #34495e; font-size: 0.9rem; letter-spacing: 1px;">
+                    POWERED BY : <span style="color: #ae2727;">A.G.S | Mɔnkɔ 🦐</span>
+                </span>
+            </div>
+        </div>
+
+        <div id="map">
+            <div id="map-title">
+                <h2>A. G. S. | GCTS</h2>
+                <h3>Official EUDR Compliance Map</h3>
+            </div>
+            
+            <div id="coords">Lat: 0.00000, Lng: 0.00000</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // 1. Global Variables
+        var currentFarmData = null;
+        var currentComplianceStatus = "PENDING";
+        var selectedPin = null;
+
+        // 2. Initialize Map
+        var map = L.map('map').setView([6.41, -0.91], 14);
+
+        // 3. Base Layers
+        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+        var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles © Esri' });
+
+        // 4. WMS Layers
+        var cocoaFarmsLayer = L.tileLayer.wms('http://localhost:8081/geoserver/cocoa_traceability/wms', {
+            layers: 'cocoa_traceability:farm_boundaries',
+            format: 'image/png',
+            transparent: true,
+            version: '1.1.0'
+        }).addTo(map);
+
+        var nabForestLayer = L.tileLayer.wms('http://localhost:8081/geoserver/cocoa_traceability/wms', {
+            layers: 'cocoa_traceability:nab_forest_reserves.shp', 
+            format: 'image/png',
+            transparent: true,
+            version: '1.1.0'
+        }).addTo(map);
+
+        // 5. Layer Control
+        L.control.layers({ "Street Map": osm, "Satellite View": satellite }, { "Cocoa Farms": cocoaFarmsLayer, "Forest Reserves": nabForestLayer }, { collapsed: false }).addTo(map);
+
+        // --- MAP CARTOGRAPHY ELEMENTS ---
+
+        // 1. Add Scale Bar (Bottom Left)
+        L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map);
+
+        // 2. Add On-Map Legend (Bottom Right)
+        var mapLegend = L.control({ position: 'bottomright' });
+        mapLegend.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'info legend');
+            div.innerHTML = 
+                '<div style="background: white; padding: 10px; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 0.85rem; font-family: sans-serif; box-shadow: 0 1px 5px rgba(0,0,0,0.4); margin-bottom: 25px;">' +
+                    '<h4 style="margin: 0 0 8px 0; font-size: 0.95rem; color: #1b2631; border-bottom: 1px solid #ccc; padding-bottom: 3px;">AGS Map Legend</h4>' +
+                    '<div style="display: flex; align-items: center; margin-bottom: 5px;">' +
+                        '<div style="width: 15px; height: 15px; background: rgba(255,0,0,0.5); border: 2px solid #8B0000; margin-right: 8px;"></div>' +
+                        '<span>Protected Forest</span>' +
+                    '</div>' +
+                    '<div style="display: flex; align-items: center;">' +
+                        '<div style="width: 15px; height: 15px; background: rgba(39,174,96,0.2); border: 2px solid #27ae60; margin-right: 8px;"></div>' +
+                        '<span>Cocoa Farm</span>' +
+                    '</div>' +
+                '</div>';
+            return div;
+        };
+        mapLegend.addTo(map);
+
+        // 3. Add Native Print Button (Top Left)
+        var customPrintButton = L.control({ position: 'topleft' });
+        customPrintButton.onAdd = function () {
+            var div = L.DomUtil.create('div', 'print-btn-container');
+            div.innerHTML = '<button onclick="window.print()" style="padding: 8px 12px; font-weight: bold; cursor: pointer; background: white; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; box-shadow: 0 1px 5px rgba(0,0,0,0.4);">🖨️ Export PDF Map</button>';
+            return div;
+        };
+        customPrintButton.addTo(map);
+
+        window.addEventListener('beforeprint', function() { map.invalidateSize(); });
+
+        // 6. Mouse Move: Update Coordinates
+        map.on('mousemove', function(e) {
+            document.getElementById('coords').innerHTML = 
+                "Lat: " + e.latlng.lat.toFixed(5) + " | Lng: " + e.latlng.lng.toFixed(5);
+        });
+
+        // 7. Click Interaction: Data Retrieval & Spatial Analysis
+        map.on('click', function (e) {
+            var pos = e.latlng;
+            var containerPoint = map.latLngToContainerPoint(pos, map.getZoom());
+            var size = map.getSize();
+            var farmLayer = 'cocoa_traceability:farm_boundaries';
+            var forestLayer = 'cocoa_traceability:nab_forest_reserves.shp';
+            
+            var url = 'http://localhost:8081/geoserver/cocoa_traceability/wms' +
+                      '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo' +
+                      '&LAYERS=' + farmLayer + '&QUERY_LAYERS=' + farmLayer +
+                      '&STYLES=&BBOX=' + map.getBounds().toBBoxString() +
+                      '&FEATURE_COUNT=1&HEIGHT=' + size.y + '&WIDTH=' + size.x +
+                      '&FORMAT=image/png&INFO_FORMAT=application/json' +
+                      '&SRS=EPSG:4326&X=' + Math.round(containerPoint.x) + '&Y=' + Math.round(containerPoint.y);
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.features.length > 0) {
+                        var props = data.features[0].properties;
+                        currentFarmData = props;
+
+                        var f_name = props.FARMER_NAM || props.farmer_nam || props.FARMER || props.farmer || "N/A";
+                        var f_id   = props.FARM_ID   || props.farm_id   || "N/A";
+                        var f_op   = props.OP_AREA   || props.op_area   || "N/A";
+                        var f_dist = props.DISTRICT  || props.district  || "N/A";
+                        var f_loca = props.FARM_LOCA || props.farm_loca || "N/A";
+                        var f_hect = parseFloat(props.HECTARES || props.hectares || 0).toFixed(2);
+
+                        if (selectedPin) { map.removeLayer(selectedPin); }
+                        selectedPin = L.marker(pos).addTo(map);
+                        selectedPin.bindPopup("Analyzing Compliance...").openPopup();
+
+                        var statusBox = document.getElementById('compliance-status-box');
+                        statusBox.style.display = 'block';
+                        statusBox.style.borderLeftColor = "#ccc";
+                        document.getElementById('status-indicator').innerHTML = "⌛ ANALYZING...";
+                        document.getElementById('feature-data').innerHTML = 
+                            "<b>Farmer:</b> " + f_name + "<br>" +
+                            "<b>Farm ID:</b> " + f_id + "<br>" +
+                            "<b>Op Area:</b> " + f_op + "<br>" +
+                            "<b>Location:</b> " + f_loca + "<br>" +
+                            "<b>District:</b> " + f_dist + "<br>" +
+                            "<b>Hectares:</b> " + f_hect;
+
+                        var spatialCheckUrl = 'http://localhost:8081/geoserver/cocoa_traceability/ows' +
+                                              '?service=WFS&version=1.0.0&request=GetFeature' +
+                                              '&typeName=' + forestLayer +
+                                              '&maxFeatures=1' + 
+                                              '&propertyName=geometry' + 
+                                              '&outputFormat=application/json' +
+                                              '&cql_filter=INTERSECTS(geometry, POINT(' + pos.lng + ' ' + pos.lat + '))';
+
+                        fetch(spatialCheckUrl)
+                            .then(res => res.json())
+                            .then(forestData => {
+                                var statusInd = document.getElementById('status-indicator');
+                                var popupStatusHtml = "";
+
+                                if (forestData.features && forestData.features.length > 0) {
+                                    currentComplianceStatus = "NON-COMPLIANT (Forest Encroachment)";
+                                    statusBox.style.borderLeftColor = "#e74c3c"; 
+                                    statusInd.innerHTML = "❌ NON-COMPLIANT";
+                                    statusInd.style.color = "#e74c3c";
+                                    popupStatusHtml = "<br><br><span style='color: #e74c3c; font-weight: bold;'>❌ NON-COMPLIANT</span>";
+                                } else {
+                                    currentComplianceStatus = "EUDR COMPLIANT";
+                                    statusBox.style.borderLeftColor = "#27ae60"; 
+                                    statusInd.innerHTML = "✅ EUDR COMPLIANT";
+                                    statusInd.style.color = "#27ae60";
+                                    popupStatusHtml = "<br><br><span style='color: #27ae60; font-weight: bold;'>✅ EUDR COMPLIANT</span>";
+                                }
+
+                                // --- NEW: Final Popup Assembly including the Status ---
+                                var finalPopupContent = "<h3>" + f_name + "</h3>" +
+                                                        "<b>ID:</b> " + f_id + "<br>" +
+                                                        "<b>Op Area:</b> " + f_op + "<br>" +
+                                                        "<b>Location:</b> " + f_loca + "<br>" +
+                                                        "<b>Area:</b> " + f_hect + " Ha" +
+                                                        popupStatusHtml;
+                                
+                                selectedPin.setPopupContent(finalPopupContent);
+                            });
+                    } else {
+                        var forestUrl = 'http://localhost:8081/geoserver/cocoa_traceability/wms' +
+                                        '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo' +
+                                        '&LAYERS=' + forestLayer + '&QUERY_LAYERS=' + forestLayer +
+                                        '&STYLES=&BBOX=' + map.getBounds().toBBoxString() +
+                                        '&FEATURE_COUNT=1&HEIGHT=' + size.y + '&WIDTH=' + size.x +
+                                        '&FORMAT=image/png&INFO_FORMAT=application/json' +
+                                        '&SRS=EPSG:4326&X=' + Math.round(containerPoint.x) + '&Y=' + Math.round(containerPoint.y);
+
+                        fetch(forestUrl)
+                            .then(response => response.json())
+                            .then(forestData => {
+                                if (forestData.features.length > 0) {
+                                    var fProps = forestData.features[0].properties;
+                                    var forestName = fProps.NAME || fProps.name || "Protected Forest";
+                                    
+                                    if (selectedPin) { map.removeLayer(selectedPin); }
+                                    selectedPin = L.marker(pos).addTo(map);
+                                    selectedPin.bindPopup("<h3 style='color:red;'>Forest Reserve</h3><b>Name:</b> " + forestName).openPopup();
+                                    
+                                    document.getElementById('compliance-status-box').style.display = 'none';
+                                }
+                            });
+                    }
+                });
+        });
+
+        // 8. Generate Report Logic
+        function generateReport() {
+            if (!currentFarmData) return;
+            var f_name = currentFarmData.FARMER_NAM || currentFarmData.farmer_nam || "N/A";
+            var f_id   = currentFarmData.FARM_ID   || currentFarmData.farm_id   || "N/A";
+            var f_op   = currentFarmData.OP_AREA   || currentFarmData.op_area   || "N/A";
+            var f_loca = currentFarmData.FARM_LOCA || currentFarmData.farm_loca || "N/A";
+            var f_dist = currentFarmData.DISTRICT  || currentFarmData.district  || "N/A";
+            var f_hect = currentFarmData.HECTARES  || currentFarmData.hectares  || "0";
+
+            var reportText = 
+                "GHANA COCOA TRACEABILITY SYSTEM (GCTS) | EUDR COMPLIANCE REPORT\n" +
+                "--------------------------------------------------\n" +
+                "Date : " + new Date().toLocaleString() + "\n" +
+                "Farmer Name : " + f_name + "\n" +
+                "Farm ID : " + f_id + "\n" +
+                "District : " + f_dist + "\n" +
+                "Area : " + f_hect + " Hectares\n" +
+                "--------------------------------------------------\n" +
+                "EUDR STATUS : " + currentComplianceStatus;
+
+            var blob = new Blob([reportText], { type: "text/plain" });
+            var url = window.URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = "AGS_Compliance_" + f_id + ".txt";
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+
+        // 9. Search Function
+        function searchFarm() {
+            var farmId = document.getElementById('search-id').value.trim();
+            var status = document.getElementById('search-status');
+            status.innerHTML = "Searching...";
+            var wfsUrl = 'http://localhost:8081/geoserver/cocoa_traceability/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=cocoa_traceability:farm_boundaries&outputFormat=application/json&cql_filter=FARM_ID=\'' + farmId + '\'';
+            fetch(wfsUrl).then(response => response.json()).then(data => {
+                if (data.features.length > 0) {
+                    status.innerHTML = "";
+                    var feature = data.features[0];
+                    var geojsonLayer = L.geoJSON(feature);
+                    map.fitBounds(geojsonLayer.getBounds(), { maxZoom: 18 });
+                    geojsonLayer.setStyle({ color: '#f1c40f', weight: 5, fillOpacity: 0.5 }).addTo(map);
+                    
+                    if (selectedPin) { map.removeLayer(selectedPin); } 
+                    setTimeout(() => { map.removeLayer(geojsonLayer); }, 4000);
+                } else { status.innerHTML = "Farm ID not found."; }
+            }).catch(err => { status.innerHTML = "Server Error."; });
+        }
+
+        cocoaFarmsLayer.bringToFront();
+    </script>
+</body>
+</html>
